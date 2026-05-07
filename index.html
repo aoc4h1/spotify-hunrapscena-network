@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <title>Spotify Artist Collaboration Network</title>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/standalone/umd/vis-network.min.js"></script>
+    <script src="data.js"></script>
+    <style type="text/css">
+        body { 
+            background-color: #121212; 
+            margin: 0; padding: 0; 
+            overflow: hidden; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+        }
+        #mynetwork { 
+            flex-grow: 1;
+            height: 100vh; 
+        }
+        #sidebar {
+            width: 320px;
+            height: 100vh;
+            background-color: #181818;
+            border-left: 1px solid #282828;
+            color: white;
+            padding: 20px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            box-shadow: -5px 0 15px rgba(0,0,0,0.5);
+        }
+        /* Kereső stílusa */
+        .search-container {
+            margin-bottom: 20px;
+        }
+        #artistSearch {
+            width: 100%;
+            padding: 12px;
+            border-radius: 20px;
+            border: 1px solid #535353;
+            background-color: #282828;
+            color: white;
+            font-size: 14px;
+            outline: none;
+        }
+        #artistSearch:focus {
+            border-color: #1DB954;
+        }
+        #details {
+            flex-grow: 1;
+            overflow-y: auto;
+        }
+        h2 { color: #1DB954; margin-top: 0; font-size: 1.5em; }
+        .track-item {
+            background-color: #282828;
+            padding: 10px;
+            margin-bottom: 8px;
+            border-radius: 4px;
+            font-size: 14px;
+            border-left: 3px solid #1DB954;
+        }
+        .info-text { color: #b3b3b3; font-style: italic; }
+        #title-overlay {
+            position: absolute;
+            top: 20px; left: 20px;
+            color: #1DB954;
+            pointer-events: none;
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+    <div id="title-overlay">
+        <h1>Spotify Network</h1>
+    </div>
+    
+    <div id="mynetwork"></div>
+
+    <div id="sidebar">
+        <div class="search-container">
+            <h2>Keresés</h2>
+            <input type="text" id="artistSearch" placeholder="Írd be az előadó nevét..." autocomplete="off">
+        </div>
+        <hr style="width:100%; border:0; border-top:1px solid #282828; margin-bottom:20px;">
+        <div id="details">
+            <p class="info-text">Kattints egy élre a dalokért, vagy keress rá valakire!</p>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        window.onload = function() {
+            const container = document.getElementById('mynetwork');
+            const detailsDiv = document.getElementById('details');
+            const searchInput = document.getElementById('artistSearch');
+            
+            if (typeof networkData === 'undefined') {
+                alert("Hiba: A data.js nem található!");
+                return;
+            }
+
+            const nodes = new vis.DataSet(networkData.nodes.map(node => ({
+                id: node.id,
+                label: node.id,
+                title: node.id, 
+                color: { background: '#1DB954', border: '#1ed760' },
+                font: { color: '#ffffff', size: 16 }
+            })));
+
+            const edges = new vis.DataSet(networkData.links.map((link, index) => ({
+                id: 'edge_' + index,
+                from: link.source,
+                to: link.target,
+                width: link.weight * 1.5,
+                customData: { tracks: link.tracks, weight: link.weight, from: link.source, to: link.target },
+                title: link.weight + " közös szám",
+                color: { color: 'rgba(83, 83, 83, 0.7)', highlight: '#1DB954' }
+            })));
+
+            const data = { nodes: nodes, edges: edges };
+
+            const options = {
+                nodes: { shape: 'dot', size: 16 },
+                physics: {
+                    enabled: true,
+                    solver: 'forceAtlas2Based',
+                    forceAtlas2Based: { gravitationalConstant: -150, springLength: 200 },
+                    stabilization: { iterations: 1000 }
+                },
+                interaction: { hover: true }
+            };
+
+            const network = new vis.Network(container, data, options);
+
+            network.once("stabilizationIterationsDone", function() {
+                network.setOptions({ physics: false });
+            });
+
+            // --- KERESŐ FUNKCIÓ ---
+            searchInput.addEventListener('input', function(e) {
+                const searchTerm = e.target.value.toLowerCase();
+                if (searchTerm.length < 2) return;
+
+                // Megkeressük a node-ot (részleges egyezés is ér)
+                const foundNode = networkData.nodes.find(n => n.id.toLowerCase().includes(searchTerm));
+
+                if (foundNode) {
+                    // Kijelölés és fókuszálás
+                    network.selectNodes([foundNode.id]);
+                    network.focus(foundNode.id, {
+                        scale: 1.2,
+                        animation: { duration: 500, easingFunction: 'easeInOutQuad' }
+                    });
+                    detailsDiv.innerHTML = `<h2>${foundNode.id}</h2><p class="info-text">Kiválasztva a hálózaton.</p>`;
+                }
+            });
+
+            // --- KATTINTÁS ESEMÉNY (SIDEBAR FRISSÍTÉS) ---
+            network.on("click", function(params) {
+                if (params.edges.length > 0 && params.nodes.length === 0) {
+                    const edgeId = params.edges[0];
+                    const edgeData = edges.get(edgeId).customData;
+                    
+                    let tracksHtml = `<h2>${edgeData.from} <br>& ${edgeData.to}</h2>`;
+                    tracksHtml += `<p><b>${edgeData.weight} közös dal:</b></p>`;
+                    
+                    const trackList = edgeData.tracks.split(", ");
+                    trackList.forEach(track => {
+                        tracksHtml += `<div class="track-item">🎵 ${track}</div>`;
+                    });
+                    
+                    detailsDiv.innerHTML = tracksHtml;
+                } else if (params.nodes.length > 0) {
+                    const nodeId = params.nodes[0];
+                    detailsDiv.innerHTML = `<h2>${nodeId}</h2><p class="info-text">Előadó kiválasztva.</p>`;
+                }
+            });
+        };
+    </script>
+</body>
+</html>
