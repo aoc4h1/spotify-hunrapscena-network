@@ -4,72 +4,52 @@
     <meta charset="UTF-8">
     <title>Hungarian Rap Scena Collaboration Network</title>
     <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/standalone/umd/vis-network.min.js"></script>
-    <script src="data.js"></script>
+    <script src="data_new.js"></script>
     <style type="text/css">
-        body { 
-            background-color: #121212; 
-            margin: 0; padding: 0; 
-            overflow: hidden; 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            display: flex;
-        }
-        #mynetwork { 
-            flex-grow: 1;
-            height: 100vh; 
-        }
-        #sidebar {
-            width: 320px;
-            height: 100vh;
-            background-color: #181818;
-            border-left: 1px solid #282828;
-            color: white;
-            padding: 20px;
-            box-sizing: border-box;
+        /* Alap stílusok */
+        body { background-color: #121212; margin: 0; padding: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; display: flex; }
+        #mynetwork { flex-grow: 1; height: 100vh; }
+        #sidebar { width: 320px; height: 100vh; background-color: #181818; border-left: 1px solid #282828; color: white; padding: 20px; box-sizing: border-box; display: flex; flex-direction: column; box-shadow: -5px 0 15px rgba(0,0,0,0.5); }
+        .search-container, .filter-container { margin-bottom: 20px; }
+        #artistSearch { width: 100%; padding: 12px; border-radius: 20px; border: 1px solid #535353; background-color: #282828; color: white; outline: none; }
+        #artistSearch:focus { border-color: #1DB954; }
+        #details { flex-grow: 1; overflow-y: auto; }
+        h2 { color: #1DB954; margin-top: 0; font-size: 1.2em; }
+        .track-item { background-color: #282828; padding: 10px; margin-bottom: 8px; border-radius: 4px; font-size: 14px; border-left: 3px solid #1DB954; }
+        .info-text { color: #b3b3b3; font-style: italic; }
+        #title-overlay { position: absolute; top: 20px; left: 20px; color: #1DB954; pointer-events: none; opacity: 0.8; z-index: 10; }
+
+        /* Töltőképernyő stílusa (style.css tartalma) */
+        #loadingBar {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            background-color: rgba(18, 18, 18, 0.95);
             display: flex;
             flex-direction: column;
-            box-shadow: -5px 0 15px rgba(0,0,0,0.5);
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
         }
-        /* Kereső stílusa */
-        .search-container {
+        .spinner {
+            width: 50px; height: 50px;
+            border: 5px solid #535353;
+            border-top: 5px solid #1DB954;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
             margin-bottom: 20px;
         }
-        #artistSearch {
-            width: 100%;
-            padding: 12px;
-            border-radius: 20px;
-            border: 1px solid #535353;
-            background-color: #282828;
-            color: white;
-            font-size: 14px;
-            outline: none;
-        }
-        #artistSearch:focus {
-            border-color: #1DB954;
-        }
-        #details {
-            flex-grow: 1;
-            overflow-y: auto;
-        }
-        h2 { color: #1DB954; margin-top: 0; font-size: 1.5em; }
-        .track-item {
-            background-color: #282828;
-            padding: 10px;
-            margin-bottom: 8px;
-            border-radius: 4px;
-            font-size: 14px;
-            border-left: 3px solid #1DB954;
-        }
-        .info-text { color: #b3b3b3; font-style: italic; }
-        #title-overlay {
-            position: absolute;
-            top: 20px; left: 20px;
-            color: #1DB954;
-            pointer-events: none;
-            opacity: 0.8;
-        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        #loadingText { color: #1DB954; font-family: sans-serif; font-size: 1.2em; }
     </style>
 </head>
 <body>
+
+    <div id="loadingBar">
+        <div class="spinner"></div>
+        <div id="loadingText">A hálózat számítása... 0%</div>
+    </div>
+
     <div id="title-overlay">
         <h1>Spotify Network</h1>
     </div>
@@ -79,11 +59,18 @@
     <div id="sidebar">
         <div class="search-container">
             <h2>Keresés</h2>
-            <input type="text" id="artistSearch" placeholder="Írd be az előadó nevét..." autocomplete="off">
+            <input type="text" id="artistSearch" placeholder="Előadó neve..." autocomplete="off">
         </div>
+
+        <div class="filter-container">
+            <h2>Min. közös dalok: <span id="weightVal">1</span></h2>
+            <input type="range" id="weightFilter" min="1" max="10" value="1" step="1" style="width: 100%; accent-color: #1DB954;">
+        </div>
+
         <hr style="width:100%; border:0; border-top:1px solid #282828; margin-bottom:20px;">
+        
         <div id="details">
-            <p class="info-text">Kattints egy élre a dalokért, vagy keress rá valakire!</p>
+            <p class="info-text">Kattints egy élre vagy keress!</p>
         </div>
     </div>
 
@@ -92,31 +79,47 @@
             const container = document.getElementById('mynetwork');
             const detailsDiv = document.getElementById('details');
             const searchInput = document.getElementById('artistSearch');
+            const weightFilter = document.getElementById('weightFilter');
+            const weightVal = document.getElementById('weightVal');
             
-            if (typeof networkData === 'undefined') {
-                alert("Hiba: A data.js nem található!");
-                return;
+            if (typeof networkData === 'undefined') { 
+                alert("Hiba: A data_new.js nem található!"); 
+                return; 
             }
 
-            const nodes = new vis.DataSet(networkData.nodes.map(node => ({
-                id: node.id,
-                label: node.id,
-                title: node.id, 
+            // 1. Adatok előkészítése
+            const nodesRaw = new vis.DataSet(networkData.nodes.map(node => ({
+                id: node.id, label: node.id, title: node.id, 
                 color: { background: '#1DB954', border: '#1ed760' },
                 font: { color: '#ffffff', size: 16 }
             })));
 
-            const edges = new vis.DataSet(networkData.links.map((link, index) => ({
+            const edgesRaw = new vis.DataSet(networkData.links.map((link, index) => ({
                 id: 'edge_' + index,
                 from: link.source,
                 to: link.target,
+                weight: link.weight,
                 width: link.weight * 1.5,
                 customData: { tracks: link.tracks, weight: link.weight, from: link.source, to: link.target },
                 title: link.weight + " közös szám",
                 color: { color: 'rgba(83, 83, 83, 0.7)', highlight: '#1DB954' }
             })));
 
-            const data = { nodes: nodes, edges: edges };
+            // 2. Szűrés beállítása
+            const edgesView = new vis.DataView(edgesRaw, {
+                filter: (edge) => edge.weight >= parseInt(weightFilter.value)
+            });
+
+            const nodesView = new vis.DataView(nodesRaw, {
+                filter: (node) => {
+                    const connectedEdges = edgesView.get({
+                        filter: (edge) => edge.from === node.id || edge.to === node.id
+                    });
+                    return connectedEdges.length > 0;
+                }
+            });
+
+            const data = { nodes: nodesView, edges: edgesView };
 
             const options = {
                 nodes: { shape: 'dot', size: 16 },
@@ -131,47 +134,67 @@
 
             const network = new vis.Network(container, data, options);
 
+            // TÖLTÉSI FOLYAMAT KEZELÉSE
+            network.on("stabilizationProgress", function(params) {
+                const width = Math.round((params.iterations / params.total) * 100);
+                document.getElementById('loadingText').innerText = "A hálózat számítása... " + width + "%";
+            });
+
             network.once("stabilizationIterationsDone", function() {
+                document.getElementById('loadingText').innerText = "Kész!";
+                setTimeout(() => {
+                    document.getElementById('loadingBar').style.display = 'none';
+                }, 500);
                 network.setOptions({ physics: false });
             });
 
-            // --- KERESŐ FUNKCIÓ ---
-            searchInput.addEventListener('input', function(e) {
+            // ESEMÉNYKEZELŐK
+            weightFilter.addEventListener('input', (e) => {
+                const val = e.target.value;
+                weightVal.innerText = val;
+                
+                // 1. Kapcsoljuk vissza a fizikát teljes gőzzel
+                network.setOptions({
+                    physics: {
+                        enabled: true,
+                        stabilization: {
+                            enabled: true,
+                            iterations: 200 // Rövidebb, gyors újraszámolás
+                        }
+                    }
+                });
+
+                // 2. Frissítjük a szűrt adatokat
+                edgesView.refresh();
+                nodesView.refresh();
+
+                // 3. Kényszerítjük a hálózatot a stabilizációra (újrarendezi magát)
+                network.stabilize();
+
+                // 4. Ha végzett a stabilizációval, állítsuk le a folyamatos mozgást
+                network.once("stabilizationIterationsDone", function() {
+                    network.setOptions({ physics: { enabled: false } });
+                });
+            });
+
+            searchInput.addEventListener('input', (e) => {
                 const searchTerm = e.target.value.toLowerCase();
                 if (searchTerm.length < 2) return;
-
-                // Megkeressük a node-ot (részleges egyezés is ér)
-                const foundNode = networkData.nodes.find(n => n.id.toLowerCase().includes(searchTerm));
-
+                const foundNode = nodesRaw.get({ filter: (n) => n.id.toLowerCase().includes(searchTerm) })[0];
                 if (foundNode) {
-                    // Kijelölés és fókuszálás
                     network.selectNodes([foundNode.id]);
-                    network.focus(foundNode.id, {
-                        scale: 1.2,
-                        animation: { duration: 500, easingFunction: 'easeInOutQuad' }
-                    });
-                    detailsDiv.innerHTML = `<h2>${foundNode.id}</h2><p class="info-text">Kiválasztva a hálózaton.</p>`;
+                    network.focus(foundNode.id, { scale: 1.2, animation: { duration: 500 } });
                 }
             });
 
-            // --- KATTINTÁS ESEMÉNY (SIDEBAR FRISSÍTÉS) ---
-            network.on("click", function(params) {
+            network.on("click", (params) => {
                 if (params.edges.length > 0 && params.nodes.length === 0) {
-                    const edgeId = params.edges[0];
-                    const edgeData = edges.get(edgeId).customData;
-                    
-                    let tracksHtml = `<h2>${edgeData.from} <br>& ${edgeData.to}</h2>`;
-                    tracksHtml += `<p><b>${edgeData.weight} közös dal:</b></p>`;
-                    
-                    const trackList = edgeData.tracks.split(", ");
-                    trackList.forEach(track => {
-                        tracksHtml += `<div class="track-item">🎵 ${track}</div>`;
-                    });
-                    
-                    detailsDiv.innerHTML = tracksHtml;
+                    const edgeData = edgesRaw.get(params.edges[0]).customData;
+                    let html = `<h2>${edgeData.from} & ${edgeData.to}</h2><p><b>${edgeData.weight} közös dal:</b></p>`;
+                    edgeData.tracks.split(", ").forEach(t => html += `<div class="track-item">🎵 ${t}</div>`);
+                    detailsDiv.innerHTML = html;
                 } else if (params.nodes.length > 0) {
-                    const nodeId = params.nodes[0];
-                    detailsDiv.innerHTML = `<h2>${nodeId}</h2><p class="info-text">Előadó kiválasztva.</p>`;
+                    detailsDiv.innerHTML = `<h2>${params.nodes[0]}</h2><p class="info-text">Előadó kiválasztva.</p>`;
                 }
             });
         };
